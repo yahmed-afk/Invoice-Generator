@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+uploads/
+output/*.pdf
+*.egg-info/
+dist/
+build/
+*.spec
+.pytest_cache/
+venv/
+.env
+windows_build_package.zip
+windows_portable/

@@ -1,0 +1,8 @@
+{
+  "acme_associates": {
+    "display_name": "Acme Associates",
+    "template_path": "templates/blank template.pdf",
+    "mapping_path": "utils/mapping_acme_associates.json",
+    "schema_path": "utils/schema_po_extraction.json"
+  }
+}
