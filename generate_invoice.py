@@ -57,10 +57,29 @@ def extract_po_data(image_path: str) -> dict:
     vendor_match = re.search(r'Name\s+([A-Za-z]+\s+[A-Za-z]+)', text)
     vendor_name = vendor_match.group(1) if vendor_match else "Acme Associates"
 
-    # Extract dates - try multiple formats
+    # Extract dates - try specific labels first
+    posting_match = re.search(r'Posting\s*Date\s*[:\s]*(\d{2}[./]\d{2}[./]\d{2,4})', text, re.IGNORECASE)
+    delivery_match = re.search(r'Delivery\s*Date\s*[:\s]*(\d{2}[./]\d{2}[./]\d{2,4})', text, re.IGNORECASE)
+    document_match = re.search(r'Document\s*Date\s*[:\s]*(\d{2}[./]\d{2}[./]\d{2,4})', text, re.IGNORECASE)
+
+    # Fall back to any date pattern
     date_matches = re.findall(r'(\d{2}[./]\d{2}[./]\d{2,4})', text)
-    posting_date = date_matches[0] if date_matches else ""
-    due_date = date_matches[1] if len(date_matches) > 1 else posting_date
+
+    posting_date = ""
+    if posting_match:
+        posting_date = posting_match.group(1)
+    elif document_match:
+        posting_date = document_match.group(1)
+    elif date_matches:
+        posting_date = date_matches[0]
+
+    due_date = ""
+    if delivery_match:
+        due_date = delivery_match.group(1)
+    elif len(date_matches) > 1:
+        due_date = date_matches[1]
+    else:
+        due_date = posting_date
 
     # Convert date format
     def convert_date(d):
