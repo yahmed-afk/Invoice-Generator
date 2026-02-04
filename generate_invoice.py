@@ -37,41 +37,53 @@ def extract_po_data(image_path: str) -> dict:
     print("================\n")
 
     # Extract PO number - try from main text first
-    po_match = re.search(r'Primary\s*[|\[\]()/\s]*(\d{3,5})', text)
-    if not po_match:
-        po_match = re.search(r'No\.?\s+Primary\s*\|?\s*(\d{3,5})', text)
-    if not po_match:
-        po_match = re.search(r'\|\|?\s*(\d{3,5})\s*[-\|]', text)
+    po_number = ""
+
+    # Try multiple patterns on the combined text
+    po_patterns = [
+        r'Primary\s*[|\[\]()~/\s-]*(\d{3,5})',
+        r'No\.?\s+Primary\s*\|?\s*(\d{3,5})',
+        r'\|\|?\s*(\d{3,5})\s*[-\)\|]',
+        r'[|\[{](\d{3})\s*[-\)\|}]',  # |803)-0 or {803}-
+    ]
+
+    for pattern in po_patterns:
+        po_match = re.search(pattern, text)
+        if po_match:
+            po_number = po_match.group(1)
+            break
 
     # If not found, try OCR on cropped header area (top-right)
     header_text = ""
-    if not po_match:
+    if not po_number:
         width, height = img.size
         header_crop = img.crop((width//2, 0, width, height//3))
         header_text = pytesseract.image_to_string(header_crop, config='--psm 6')
         print(f"=== Header OCR ===\n{header_text[:500]}\n================")
-        po_match = re.search(r'Primary\s*[|\[\]()/\s]*(\d{3,5})', header_text)
-        if not po_match:
-            po_match = re.search(r'(\d{3,4})\s*[-\)\|]', header_text)
-        if not po_match:
-            # Try finding standalone 3-digit number near "No." or "Primary"
-            po_match = re.search(r'(?:No|Primary)[^\d]*(\d{3,4})', header_text, re.IGNORECASE)
-        if not po_match:
-            # Last resort - any 3-digit number
-            po_match = re.search(r'\b(\d{3})\b', header_text)
-        if not po_match:
-            # Handle OCR error: "a08" should be "803", "8o3" etc
-            ocr_po = re.search(r'[|\[]?([a8]\d{2}|[\d][oO][\d])\b', header_text)
-            if ocr_po:
-                po_str = ocr_po.group(1)
-                # Fix common OCR errors
-                po_str = po_str.replace('a', '8').replace('A', '8').replace('o', '0').replace('O', '0')
-                po_number = po_str
 
-    if po_match:
-        po_number = po_match.group(1)
-    elif 'po_number' not in dir() or not po_number:
-        po_number = ""
+        for pattern in po_patterns:
+            po_match = re.search(pattern, header_text)
+            if po_match:
+                po_number = po_match.group(1)
+                break
+
+        if not po_number:
+            # Try to find 3-digit number near "Primary" or "No."
+            po_match = re.search(r'(?:No|Primary)[^\d]*?(\d{3,4})', header_text, re.IGNORECASE)
+            if po_match:
+                po_number = po_match.group(1)
+
+        if not po_number:
+            # Handle format like "|608 )-0" - take the first 3-digit number
+            po_match = re.search(r'[|{\[~](\d{3})\b', header_text)
+            if po_match:
+                po_number = po_match.group(1)
+
+        if not po_number:
+            # Last resort - any 3-digit number in header
+            po_match = re.search(r'\b(\d{3})\b', header_text)
+            if po_match:
+                po_number = po_match.group(1)
 
     # Also try to get dates from header area
     if header_text:
@@ -82,12 +94,28 @@ def extract_po_data(image_path: str) -> dict:
     vendor_name = vendor_match.group(1) if vendor_match else "Acme Associates"
 
     # Extract dates - try specific labels first
-    posting_match = re.search(r'Posting\s*Date\s*[:\s]*(\d{2}[./]\d{2}[./]\d{2,4})', text, re.IGNORECASE)
-    delivery_match = re.search(r'Delivery\s*Date\s*[:\s]*(\d{2}[./]\d{2}[./]\d{2,4})', text, re.IGNORECASE)
-    document_match = re.search(r'Document\s*Date\s*[:\s]*(\d{2}[./]\d{2}[./]\d{2,4})', text, re.IGNORECASE)
+    posting_match = re.search(r'Posting\s*Date\s*[:\s|]*(\d{2}[./]\d{2}[./]\d{2,4})', text, re.IGNORECASE)
+    delivery_match = re.search(r'Delivery\s*Date\s*[:\s|]*(\d{2}[./]\d{2}[./]\d{2,4})', text, re.IGNORECASE)
+    document_match = re.search(r'Document\s*Date\s*[:\s|]*(\d{2}[./]\d{2}[./]\d{2,4})', text, re.IGNORECASE)
 
-    # Fall back to any date pattern
+    # Fall back to any date pattern (dd/mm/yyyy or mm/dd/yyyy formats)
     date_matches = re.findall(r'(\d{2}[./]\d{2}[./]\d{2,4})', text)
+
+    # Also try to OCR the specific date area (usually top-right corner of form)
+    if not date_matches:
+        width, height = img.size
+        # Try cropping different areas where dates might be
+        date_areas = [
+            (int(width*0.6), 0, width, int(height*0.25)),  # Top-right
+            (int(width*0.5), int(height*0.05), width, int(height*0.2)),  # Upper right
+        ]
+        for area in date_areas:
+            date_crop = img.crop(area)
+            date_ocr = pytesseract.image_to_string(date_crop, config='--psm 6')
+            found_dates = re.findall(r'(\d{2}[./]\d{2}[./]\d{2,4})', date_ocr)
+            if found_dates:
+                date_matches.extend(found_dates)
+                break
 
     posting_date = ""
     if posting_match:
@@ -152,12 +180,17 @@ def extract_po_data(image_path: str) -> dict:
     item_patterns = []
     lines = text.split('\n')
     for line in lines:
+        # Skip any leading row numbers and special chars (e.g., "a * )" or "2 * ")
         # Look for lines with item codes - description can start with letter or number (J.B. or 3.8.)
-        item_match = re.search(r'([A45]\s?[0OoQiI\d]{4,5})\s+([A-Za-z0-9][^\n]{3,35}?)(?=\s+\d{1,3}\s+\d{1,3})', line, re.IGNORECASE)
+        # Handle OCR reading A as "a", "4", "5" and 0 as "O", "o"
+        item_match = re.search(r'(?:^[\d\s*a|)\[\]]+\s*)?([Aa45]\s?[0OoQiIL\d]{4,5})\s+([A-Za-z0-9][^\n]{3,35}?)(?=\s+\d{1,3}[\s.,]+\d{1,3})', line, re.IGNORECASE)
         if item_match:
             # Get all AUD amounts on this line
             amounts = re.findall(r'AUD\s*([\d.,]+)', line, re.IGNORECASE)
-            qty_match = re.search(r'(\d{1,3})\s+(\d{1,3})[,.]?\s+AUD', line)
+            # More flexible qty pattern - handle OCR spacing variations
+            qty_match = re.search(r'(\d{1,3})[\s.,]+(\d{1,3})\s+AUD', line)
+            if not qty_match:
+                qty_match = re.search(r'(\d{1,3})\s+(\d{1,3})[,.]?\s+AUD', line)
             if amounts and qty_match:
                 item_no = item_match.group(1).replace(' ', '')
                 desc = item_match.group(2).strip()
@@ -201,11 +234,11 @@ def extract_po_data(image_path: str) -> dict:
 
             # Fix OCR errors in item code
             item_no = item_no.replace(' ', '')  # Remove spaces
-            if item_no.startswith('4') or item_no.startswith('5'):
+            if item_no.startswith('4') or item_no.startswith('5') or item_no.lower().startswith('a'):
                 item_no = 'A' + item_no[1:]
-            # Replace common OCR errors: Q->0, O->0, i->1, I->1
+            # Replace common OCR errors: Q->0, O->0, i->1, I->1, l->1, L->1
             item_no = item_no.upper()
-            item_no = item_no.replace('Q', '0').replace('O', '0').replace('I', '1')
+            item_no = item_no.replace('Q', '0').replace('O', '0').replace('I', '1').replace('L', '1')
             if not item_no.startswith('A'):
                 item_no = 'A' + item_no[1:] if len(item_no) > 1 else 'A00001'
             # Ensure 6 chars (A + 5 digits)
@@ -403,6 +436,14 @@ def extract_po_data(image_path: str) -> dict:
             "total_payment_due": {"amount": total_due, "currency": currency}
         }
     }
+
+    # Debug: Print extracted data
+    print(f"=== Extracted Data ===")
+    print(f"PO#: {po_number}, Dates: {posting_date}/{due_date}")
+    print(f"Items: {len(line_items)}")
+    for item in line_items:
+        print(f"  - {item['item_no']}: qty={item['quantity']}, price={item['unit_price']['amount']}")
+    print(f"======================")
 
     return payload
 
