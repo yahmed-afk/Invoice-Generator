@@ -1,0 +1,62 @@
+name: Build Windows Executable
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:  # Allows manual trigger
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Tesseract OCR
+      run: |
+        choco install tesseract -y
+        echo "C:\Program Files\Tesseract-OCR" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller pytesseract Pillow pypdf reportlab
+
+    - name: Build executable
+      run: |
+        pyinstaller --noconfirm --onedir --windowed `
+          --name "InvoiceGenerator" `
+          --add-data "templates;templates" `
+          --add-data "utils;utils" `
+          --hidden-import PIL `
+          --hidden-import pytesseract `
+          --hidden-import pypdf `
+          --hidden-import reportlab `
+          invoice_app_windows.py
+
+    - name: Copy Tesseract to dist
+      run: |
+        xcopy "C:\Program Files\Tesseract-OCR" "dist\InvoiceGenerator\tesseract\" /E /I /Q
+        mkdir "dist\InvoiceGenerator\output"
+
+    - name: Create launcher batch file
+      run: |
+        @"
+        @echo off
+        cd /d "%~dp0"
+        set "PATH=%CD%\tesseract;%PATH%"
+        set "TESSDATA_PREFIX=%CD%\tesseract\tessdata"
+        start "" "InvoiceGenerator.exe"
+        "@ | Out-File -FilePath "dist\InvoiceGenerator\Run Invoice Generator.bat" -Encoding ascii
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: InvoiceGenerator-Windows
+        path: dist/InvoiceGenerator/
+        retention-days: 30

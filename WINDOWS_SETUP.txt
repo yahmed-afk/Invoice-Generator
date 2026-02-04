@@ -1,0 +1,95 @@
+================================================================================
+                    INVOICE GENERATOR - WINDOWS SETUP GUIDE
+================================================================================
+
+This tool converts SAP B1 Purchase Order screenshots into PDF invoices.
+
+
+STEP 1: INSTALL PYTHON
+----------------------
+1. Download Python 3.11+ from: https://www.python.org/downloads/windows/
+2. During installation, CHECK "Add Python to PATH"
+3. Click "Install Now"
+4. Verify installation by opening Command Prompt and typing:
+   python --version
+
+
+STEP 2: INSTALL TESSERACT OCR
+-----------------------------
+1. Download Tesseract installer from:
+   https://github.com/UB-Mannheim/tesseract/wiki
+
+2. Run the installer (e.g., tesseract-ocr-w64-setup-5.3.3.20231005.exe)
+3. Install to default location: C:\Program Files\Tesseract-OCR
+
+4. Add Tesseract to PATH:
+   - Open Windows Settings > System > About > Advanced system settings
+   - Click "Environment Variables"
+   - Under "System variables", find "Path" and click "Edit"
+   - Click "New" and add: C:\Program Files\Tesseract-OCR
+   - Click OK to save
+
+5. Verify installation by opening a NEW Command Prompt and typing:
+   tesseract --version
+
+
+STEP 3: INSTALL PYTHON DEPENDENCIES
+-----------------------------------
+1. Open Command Prompt
+2. Navigate to the app folder:
+   cd path\to\traild_invoice_generator
+
+3. Install dependencies:
+   pip install -r requirements.txt
+
+
+STEP 4: RUN THE APPLICATION
+---------------------------
+1. Open Command Prompt
+2. Navigate to the app folder:
+   cd path\to\traild_invoice_generator
+
+3. Run the app:
+   python invoice_app_windows.py
+
+4. The app window will open:
+   - Click "Browse..." to select a PO screenshot
+   - Click "Generate Invoice" to create the PDF
+   - The PDF will be saved in the "output" folder
+
+
+TROUBLESHOOTING
+---------------
+Error: "tesseract is not recognized"
+   -> Make sure Tesseract is installed and added to PATH
+   -> Restart Command Prompt after adding to PATH
+
+Error: "No module named 'pytesseract'"
+   -> Run: pip install pytesseract
+
+Error: "TesseractNotFoundError"
+   -> Tesseract path may be wrong. Edit generate_invoice.py and add at the top:
+      import pytesseract
+      pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+
+Error: "DLL load failed"
+   -> Install Visual C++ Redistributable:
+      https://aka.ms/vs/17/release/vc_redist.x64.exe
+
+
+FILES INCLUDED
+--------------
+- invoice_app_windows.py    : Main application (cross-platform)
+- generate_invoice.py       : OCR extraction logic
+- utils/pdf_filler.py       : PDF generation
+- templates/blank template.pdf : Invoice template
+- input/                    : Sample PO screenshots
+- output/                   : Generated invoices go here
+
+
+CONTACT
+-------
+For issues, contact the sender of this package.
+
+
+================================================================================

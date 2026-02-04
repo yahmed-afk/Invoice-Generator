@@ -1,0 +1,31 @@
+{
+  "document_type": "purchase_order",
+  "extraction_targets": {
+    "header": {
+      "vendor_name": { "type": "string", "required": true },
+      "po_number": { "type": "string", "required": true },
+      "posting_date": { "type": "date", "required": true },
+      "due_date": { "type": "date", "required": false },
+      "currency": { "type": "string", "required": false }
+    },
+    "line_items": {
+      "type": "array",
+      "min_items": 1,
+      "items": {
+        "line_no": { "type": "integer", "required": false },
+        "item_no": { "type": "string", "required": true },
+        "description": { "type": "string", "required": true },
+        "quantity": { "type": "number", "required": true },
+        "unit_price": { "type": "money", "required": true },
+        "line_total": { "type": "money", "required": true }
+      }
+    },
+    "totals": {
+      "total_before_discount": { "type": "money", "required": true },
+      "discount": { "type": "money", "required": false },
+      "freight": { "type": "money", "required": false },
+      "tax": { "type": "money", "required": false },
+      "total_payment_due": { "type": "money", "required": true }
+    }
+  }
+}

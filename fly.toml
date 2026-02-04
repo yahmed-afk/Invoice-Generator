@@ -1,4 +1,4 @@
-app = "invoice-generator"
+app = "invoice-generator-app"
 primary_region = "lhr"
 
 [build]

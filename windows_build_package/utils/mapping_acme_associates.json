@@ -1,0 +1,23 @@
+{
+  "header": {
+    "PO #": "$.header.po_number",
+    "DATE": "$.header.posting_date",
+    "INVOICE DUE DATE": "$.header.due_date"
+  },
+  "line_items_table": {
+    "rows": "$.line_items[]",
+    "columns": {
+      "DESCRIPTION": "$.description",
+      "QUANTITY": "$.quantity",
+      "PRICE": "$.unit_price.amount",
+      "Line Total": "$.line_total.amount"
+    }
+  },
+  "totals": {
+    "Total Before Discount": "$.totals.total_before_discount.amount",
+    "Discount": "$.totals.discount.amount",
+    "Freight": "$.totals.freight.amount",
+    "Tax": "$.totals.tax.amount",
+    "Total Payment Due": "$.totals.total_payment_due.amount"
+  }
+}

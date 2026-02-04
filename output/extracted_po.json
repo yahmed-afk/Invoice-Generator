@@ -1,0 +1,42 @@
+{
+  "vendor_key": "acme_associates",
+  "header": {
+    "vendor_name": "Acme Associates",
+    "po_number": "79",
+    "posting_date": "2026-01-27",
+    "due_date": "2026-01-27",
+    "currency": "AUD"
+  },
+  "line_items": [
+    {
+      "line_no": 1,
+      "item_no": "A00001",
+      "description": "J.B. Officeprint 1420",
+      "quantity": 5,
+      "unit_price": {
+        "currency": "AUD",
+        "amount": 500.0
+      },
+      "line_total": {
+        "currency": "AUD",
+        "amount": 2500.0
+      }
+    }
+  ],
+  "totals": {
+    "total_before_discount": {
+      "currency": "AUD",
+      "amount": 2500.0
+    },
+    "discount": null,
+    "freight": null,
+    "tax": {
+      "currency": "AUD",
+      "amount": 250.0
+    },
+    "total_payment_due": {
+      "currency": "AUD",
+      "amount": 2750.0
+    }
+  }
+}

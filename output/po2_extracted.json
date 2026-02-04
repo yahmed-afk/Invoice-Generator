@@ -1,0 +1,46 @@
+{
+  "header": {
+    "vendor_code": "V10000",
+    "vendor_name": "Acme Associates",
+    "po_number": "1261",
+    "posting_date": "2026-01-29",
+    "due_date": "2026-01-29",
+    "currency": "USD"
+  },
+  "line_items": [
+    {
+      "item_no": "A001",
+      "description": "Officeprint 1420",
+      "quantity": 30,
+      "unit_price": {
+        "amount": 400.0,
+        "currency": "USD"
+      },
+      "tax_code": "NY",
+      "line_total": {
+        "amount": 12000.0,
+        "currency": "USD"
+      }
+    }
+  ],
+  "totals": {
+    "total_before_discount": {
+      "amount": 12000.0,
+      "currency": "USD"
+    },
+    "discount": null,
+    "freight": null,
+    "rounding": {
+      "amount": 0.0,
+      "currency": "USD"
+    },
+    "tax": {
+      "amount": 990.0,
+      "currency": "USD"
+    },
+    "total_payment_due": {
+      "amount": 12990.0,
+      "currency": "USD"
+    }
+  }
+}
