@@ -28,7 +28,18 @@ def generate_invoice(image):
         temp_path = "uploads/temp_po.png"
         image.save(temp_path)
 
+        # Debug: Check if tesseract is available
+        import subprocess
+        try:
+            result = subprocess.run(['tesseract', '--version'], capture_output=True, text=True)
+            print(f"Tesseract version: {result.stdout[:100]}")
+        except Exception as te:
+            print(f"Tesseract check failed: {te}")
+
         payload = extract_po_data(temp_path)
+
+        # Debug: Print extracted data
+        print(f"Extracted payload: {payload}")
 
         output_path = "output/generated_invoice.pdf"
 
@@ -49,6 +60,8 @@ def generate_invoice(image):
         return output_path
 
     except Exception as e:
+        import traceback
+        print(f"Error: {traceback.format_exc()}")
         raise gr.Error(f"Failed to generate invoice: {str(e)}")
 
 css = """

@@ -110,11 +110,15 @@ def extract_po_data(image_path: str) -> dict:
 
     # Try multiple patterns to capture line items
     patterns = [
-        # Pattern 1: "A00001 J.B, Officeprint 1420 5 5 AUD 500,000"
-        r'([A4]\d{5})\s+(.{5,35}?)\s+(\d+)\s+\d+\s+(?:AUD|USD)\s*([\d.,]+)',
-        # Pattern 2: with "No" in between
+        # Pattern 1: "A00001 J.B. Officeprint 1420 15 15 AUD 500.000"
+        r'([A4]\d{5})\s+(.{5,40}?)\s+(\d{1,3})\s+\d{1,3}\s+(?:AUD|USD)\s*([\d.,]+)',
+        # Pattern 2: with item description containing numbers
+        r'([A4]\d{5})\s+([A-Za-z][\w\s.,]+?)\s+(\d{1,3})\s+\d{1,3}\s+(?:AUD|USD)\s*([\d.,]+)',
+        # Pattern 3: with "No" in between
         r'([A4]\d{5})\s+(.{5,40}?)\s+(\d+)\s+\d+\s+No\s+\d+[\s|]*(?:AUD|USD)?\s*([\d.,]+)',
-        # Pattern 3: simpler - item, desc, then price somewhere
+        # Pattern 4: simpler - item code, any description, quantity, price
+        r'([A4]\d{5})\s+([A-Za-z].{5,35}?)\s+(\d{1,3})\s+.*?(?:AUD|USD)\s*([\d.,]+)',
+        # Pattern 5: fallback - item, desc, price at end
         r'([A4]\d{5})\s+([A-Za-z][^0-9]{5,30}?)\s+.*?([\d]{2,3})[.,]00',
     ]
 
