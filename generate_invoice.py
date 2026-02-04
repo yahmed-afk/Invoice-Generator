@@ -11,7 +11,7 @@ from pathlib import Path
 from datetime import datetime
 
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 
 # Import pdf_filler directly
 import importlib.util
@@ -20,70 +20,108 @@ pdf_filler = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pdf_filler)
 
 
+def preprocess_image(img):
+    """Preprocess image for better OCR accuracy."""
+    # Convert to RGB if necessary
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+
+    # Scale up small images for better OCR
+    width, height = img.size
+    if width < 1500:
+        scale = 1500 / width
+        img = img.resize((int(width * scale), int(height * scale)), Image.LANCZOS)
+
+    # Convert to grayscale
+    img_gray = img.convert('L')
+
+    # Increase contrast
+    enhancer = ImageEnhance.Contrast(img_gray)
+    img_contrast = enhancer.enhance(2.0)
+
+    # Sharpen
+    img_sharp = img_contrast.filter(ImageFilter.SHARPEN)
+
+    return img_sharp
+
+
 def extract_po_data(image_path: str) -> dict:
     """Extract PO data from screenshot using OCR."""
-    img = Image.open(image_path)
+    img_original = Image.open(image_path)
 
-    # Try multiple PSM modes and combine results
-    text_psm3 = pytesseract.image_to_string(img, config='--psm 3')
-    text_psm4 = pytesseract.image_to_string(img, config='--psm 4')
-    text_psm6 = pytesseract.image_to_string(img, config='--psm 6')
+    # Try both preprocessed and original images for better coverage
+    img_preprocessed = preprocess_image(img_original)
 
-    # Combine all for better coverage
-    text = text_psm3 + "\n" + text_psm4 + "\n" + text_psm6
+    # OCR preprocessed image
+    text_psm3_pre = pytesseract.image_to_string(img_preprocessed, config='--psm 3')
+    text_psm4_pre = pytesseract.image_to_string(img_preprocessed, config='--psm 4')
+    text_psm6_pre = pytesseract.image_to_string(img_preprocessed, config='--psm 6')
 
-    print("=== OCR Text (PSM 3) ===")
-    print(text_psm3[:1500])
+    # Also OCR original image (sometimes preprocessing loses data)
+    text_psm3_orig = pytesseract.image_to_string(img_original, config='--psm 3')
+    text_psm4_orig = pytesseract.image_to_string(img_original, config='--psm 4')
+
+    # Combine all for best coverage
+    text = text_psm3_pre + "\n" + text_psm4_pre + "\n" + text_psm6_pre + "\n" + text_psm3_orig + "\n" + text_psm4_orig
+
+    print("=== OCR Text (PSM 3 preprocessed) ===")
+    print(text_psm3_pre[:1000])
+    print("=== OCR Text (PSM 3 original) ===")
+    print(text_psm3_orig[:500])
     print("================\n")
 
-    # Extract PO number - try from main text first
+    # Extract PO number - try header area FIRST where PO# is typically located
     po_number = ""
+    header_text = ""
 
-    # Try multiple patterns on the combined text
+    # OCR the header area (top-right) first - this is where PO number usually is
+    width, height = img_original.size
+    header_crop = img_original.crop((width//2, 0, width, height//3))
+    header_crop = preprocess_image(header_crop)
+    header_text = pytesseract.image_to_string(header_crop, config='--psm 6')
+    print(f"=== Header OCR ===\n{header_text[:500]}\n================")
+
+    # Patterns to find PO number
     po_patterns = [
-        r'Primary\s*[|\[\]()~/\s-]*(\d{3,5})',
+        r'Primary\s*[¥|\[\]()~/\s\-\*]*[)|\]]?\s*(\d{3,5})',  # Primary ¥|)803
         r'No\.?\s+Primary\s*\|?\s*(\d{3,5})',
-        r'\|\|?\s*(\d{3,5})\s*[-\)\|]',
-        r'[|\[{](\d{3})\s*[-\)\|}]',  # |803)-0 or {803}-
+        r'[¥|\[{]\s*[)|\]]?\s*(\d{3})\s*[-\)\|JO0]',  # |)803 or ¥)803
     ]
 
+    # Try patterns on header text first
     for pattern in po_patterns:
-        po_match = re.search(pattern, text)
+        po_match = re.search(pattern, header_text)
         if po_match:
             po_number = po_match.group(1)
+            print(f"PO matched in header: {pattern} -> {po_number}")
             break
 
-    # If not found, try OCR on cropped header area (top-right)
-    header_text = ""
+    # If not in header, try main text
     if not po_number:
-        width, height = img.size
-        header_crop = img.crop((width//2, 0, width, height//3))
-        header_text = pytesseract.image_to_string(header_crop, config='--psm 6')
-        print(f"=== Header OCR ===\n{header_text[:500]}\n================")
-
         for pattern in po_patterns:
-            po_match = re.search(pattern, header_text)
+            po_match = re.search(pattern, text)
             if po_match:
                 po_number = po_match.group(1)
+                print(f"PO matched in main text: {pattern} -> {po_number}")
                 break
 
-        if not po_number:
-            # Try to find 3-digit number near "Primary" or "No."
-            po_match = re.search(r'(?:No|Primary)[^\d]*?(\d{3,4})', header_text, re.IGNORECASE)
-            if po_match:
-                po_number = po_match.group(1)
+    # Fallback - look for 3-digit number after "Primary" or "No." in header
+    if not po_number:
+        po_match = re.search(r'(?:No|Primary)[^\d]*?(\d{3,4})', header_text, re.IGNORECASE)
+        if po_match:
+            po_number = po_match.group(1)
 
-        if not po_number:
-            # Handle format like "|608 )-0" - take the first 3-digit number
-            po_match = re.search(r'[|{\[~](\d{3})\b', header_text)
-            if po_match:
-                po_number = po_match.group(1)
+    if not po_number:
+        # Handle format like "|608 )-0" - take the first 3-digit number in header
+        po_match = re.search(r'[|{\[~¥][\s)|\]]*(\d{3})\b', header_text)
+        if po_match:
+            po_number = po_match.group(1)
 
-        if not po_number:
-            # Last resort - any 3-digit number in header
-            po_match = re.search(r'\b(\d{3})\b', header_text)
-            if po_match:
-                po_number = po_match.group(1)
+    if not po_number:
+        # Last resort - any 3-digit number in header that's not part of a longer number
+        po_match = re.search(r'(?<!\d)(\d{3})(?!\d)', header_text)
+        if po_match:
+            po_number = po_match.group(1)
 
     # Also try to get dates from header area
     if header_text:
@@ -103,14 +141,15 @@ def extract_po_data(image_path: str) -> dict:
 
     # Also try to OCR the specific date area (usually top-right corner of form)
     if not date_matches:
-        width, height = img.size
+        width, height = img_original.size
         # Try cropping different areas where dates might be
         date_areas = [
             (int(width*0.6), 0, width, int(height*0.25)),  # Top-right
             (int(width*0.5), int(height*0.05), width, int(height*0.2)),  # Upper right
         ]
         for area in date_areas:
-            date_crop = img.crop(area)
+            date_crop = img_original.crop(area)
+            date_crop = preprocess_image(date_crop)
             date_ocr = pytesseract.image_to_string(date_crop, config='--psm 6')
             found_dates = re.findall(r'(\d{2}[./]\d{2}[./]\d{2,4})', date_ocr)
             if found_dates:
@@ -182,8 +221,12 @@ def extract_po_data(image_path: str) -> dict:
     for line in lines:
         # Skip any leading row numbers and special chars (e.g., "a * )" or "2 * ")
         # Look for lines with item codes - description can start with letter or number (J.B. or 3.8.)
-        # Handle OCR reading A as "a", "4", "5" and 0 as "O", "o"
-        item_match = re.search(r'(?:^[\d\s*a|>\')(\[\]]+\s*)?([Aa45]\s?[0OoQiIL\d]{4,5})\s+([A-Za-z0-9][^\n]{3,35}?)(?=\s+\d{1,3}[\s.,]+\d{1,3})', line, re.IGNORECASE)
+        # Handle OCR reading A as "a", "4", "5" and 0 as "O", "o", or pure digits like 00001
+        # Pattern 1: Standard item code starting with A, 4, 5 or digit that looks like A
+        item_match = re.search(r'(?:^[\d\s*a|i>¥\\c\')(\[\]]+\s*)?([Aa45][0OoQiIL\d]{4,5})\s+[/\\]?([A-Za-z0-9].+?)(?=\s+[\'\d][^\w]*\d*\s*[|,]?\s*AUD|\s+AUD)', line, re.IGNORECASE)
+        # Pattern 2: Pure digit item code like 00001 (without A prefix)
+        if not item_match:
+            item_match = re.search(r'(?:^[\d\s*a|i>¥\\c\')(\[\]]+\s*)?(0{2,}\d{2,3})\s+[/\\]?([A-Za-z0-9].+?)(?=\s+[\'\d][^\w]*\d*\s*[|,]?\s*AUD|\s+AUD)', line, re.IGNORECASE)
         if item_match:
             # Get all AUD amounts on this line
             amounts = re.findall(r'AUD\s*([\d.,]+)', line, re.IGNORECASE)
@@ -199,25 +242,50 @@ def extract_po_data(image_path: str) -> dict:
             # Pattern 4: just two consecutive numbers before any AUD on the line
             if not qty_match and amounts:
                 qty_match = re.search(r'(\d{1,3})\s+(\d{1,3})(?:\s|$|[^\d])', line)
-            if amounts and qty_match:
-                item_no = item_match.group(1).replace(' ', '')
-                desc = item_match.group(2).strip()
-                # Use the larger of the two quantity values (Qty and Open Qty columns)
-                qty = max(int(qty_match.group(1)), int(qty_match.group(2)))
+            # Pattern 5: single digit followed by | or AUD (for garbled qty)
+            if not qty_match and amounts:
+                qty_match = re.search(r'(\d{1,2})[|\s]+AUD', line)
+            if amounts:
+                item_no = item_match.group(1).replace(' ', '') if item_match.group(1) else ""
+                desc = item_match.group(2).strip() if item_match.group(2) else ""
 
-                # Smart price selection: compare first amount with total/qty
-                first_price = float(amounts[0].replace(',', '').replace('.', '', amounts[0].count('.') - 1) if amounts[0].count('.') > 1 else amounts[0].replace(',', ''))
-                if len(amounts) >= 2:
-                    # Get the last amount (total)
-                    total_str = amounts[-1].replace(',', '')
+                # Get qty - handle different patterns
+                if qty_match:
                     try:
-                        total = float(total_str)
+                        if qty_match.lastindex >= 2:
+                            qty = max(int(qty_match.group(1)), int(qty_match.group(2)))
+                        else:
+                            qty = int(qty_match.group(1))
+                    except:
+                        qty = 1
+                else:
+                    qty = 1
+
+                # Parse first price
+                first_price_str = amounts[0].replace(',', '')
+                # Handle SAP format with .000
+                if first_price_str.endswith('.000') or first_price_str.endswith(',000'):
+                    first_price_str = first_price_str[:-1]  # Remove last 0
+                first_price = float(first_price_str.replace('.', '', first_price_str.count('.') - 1) if first_price_str.count('.') > 1 else first_price_str)
+
+                # If we have a total, calculate qty from total/price
+                if len(amounts) >= 2:
+                    total_str = amounts[-1].replace(',', '')
+                    if total_str.endswith('.000') or total_str.endswith(',000'):
+                        total_str = total_str[:-1]
+                    try:
+                        total = float(total_str.replace('.', '', total_str.count('.') - 1) if total_str.count('.') > 1 else total_str)
+                        # Calculate qty from total/price
+                        if first_price > 0:
+                            calc_qty = round(total / first_price)
+                            if calc_qty > 0 and calc_qty < 1000:  # Sanity check
+                                qty = calc_qty
+                        # Smart price selection
                         expected_unit = total / qty if qty > 0 else total
-                        # If first price is close to expected, use it; otherwise use second amount
                         if abs(first_price - expected_unit) < expected_unit * 0.5:
                             price_str = amounts[0]
                         else:
-                            price_str = amounts[1]
+                            price_str = amounts[1] if len(amounts) > 1 else amounts[0]
                     except:
                         price_str = amounts[0]
                 else:
@@ -296,7 +364,12 @@ def extract_po_data(image_path: str) -> dict:
             desc = re.sub(r'^[\u2014\-—_]+\s*', '', desc)
             desc = re.sub(r'_ma[o>]?', '', desc)
             desc = desc.replace('_', ' ')
+            # Fix common OCR errors: 3.B -> J.B., /3.B -> J.B.
+            desc = re.sub(r'^[/\\]?[3]\.*B[,.]?\s*', 'J.B. ', desc)
             desc = re.sub(r'^[)1I]\.*B[,.]?\s*', 'J.B. ', desc)
+            # Remove trailing garbage (OCR artifacts after the real description)
+            desc = re.sub(r"\s+['\u2018\u2019`][A-Za-z]{1,3}\s+[a-z]\.\d+.*$", '', desc)
+            desc = re.sub(r"\s+\d+[|,\s]+$", '', desc)
             desc = re.sub(r'\s+', ' ', desc).strip()
 
             # Detect tax code
