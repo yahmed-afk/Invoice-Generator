@@ -13,8 +13,29 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
 
-# Add current directory to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Handle bundled app paths (PyInstaller)
+if getattr(sys, 'frozen', False):
+    # Running as compiled executable
+    BASE_DIR = sys._MEIPASS
+    APP_DIR = os.path.dirname(sys.executable)
+else:
+    # Running as script
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    APP_DIR = BASE_DIR
+
+# Add base directory to path
+sys.path.insert(0, BASE_DIR)
+
+# Set Tesseract path for bundled Windows app
+if platform.system() == 'Windows':
+    tesseract_path = os.path.join(BASE_DIR, 'tesseract', 'tesseract.exe')
+    if os.path.exists(tesseract_path):
+        import pytesseract
+        pytesseract.pytesseract.tesseract_cmd = tesseract_path
+        # Also set tessdata path
+        tessdata_path = os.path.join(BASE_DIR, 'tesseract', 'tessdata')
+        if os.path.exists(tessdata_path):
+            os.environ['TESSDATA_PREFIX'] = tessdata_path
 
 from generate_invoice import extract_po_data
 
@@ -201,16 +222,16 @@ class InvoiceGeneratorApp:
             self.root.update()
             payload = extract_po_data(image_path)
 
-            # Generate output path
-            output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'output')
+            # Generate output path (use APP_DIR for output, so it's accessible)
+            output_dir = os.path.join(APP_DIR, 'output')
             os.makedirs(output_dir, exist_ok=True)
 
             stem = Path(image_path).stem
             output_path = os.path.join(output_dir, f"{stem}_invoice.pdf")
 
-            # Get template path
+            # Get template path (use BASE_DIR for bundled resources)
             template_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
+                BASE_DIR,
                 'templates',
                 'blank template.pdf'
             )

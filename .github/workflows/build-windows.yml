@@ -27,32 +27,53 @@ jobs:
         python -m pip install --upgrade pip
         pip install pyinstaller pytesseract Pillow pypdf reportlab
 
-    - name: Build executable
+    - name: Copy Tesseract to project for bundling
+      run: |
+        mkdir tesseract
+        xcopy "C:\Program Files\Tesseract-OCR\*" "tesseract\" /E /I /Q
+
+    - name: Build executable with PyInstaller
       run: |
         pyinstaller --noconfirm --onedir --windowed `
           --name "InvoiceGenerator" `
           --add-data "templates;templates" `
           --add-data "utils;utils" `
+          --add-data "generate_invoice.py;." `
+          --add-data "tesseract;tesseract" `
           --hidden-import PIL `
+          --hidden-import PIL.Image `
+          --hidden-import PIL._tkinter_finder `
           --hidden-import pytesseract `
           --hidden-import pypdf `
+          --hidden-import pypdf._reader `
+          --hidden-import pypdf._writer `
           --hidden-import reportlab `
+          --hidden-import reportlab.lib `
+          --hidden-import reportlab.lib.colors `
+          --hidden-import reportlab.lib.pagesizes `
+          --hidden-import reportlab.pdfgen `
+          --hidden-import reportlab.pdfgen.canvas `
+          --hidden-import reportlab.pdfbase `
+          --hidden-import reportlab.pdfbase.ttfonts `
+          --hidden-import reportlab.pdfbase.pdfmetrics `
           invoice_app_windows.py
 
-    - name: Copy Tesseract to dist
+    - name: Create output directory and README
       run: |
-        xcopy "C:\Program Files\Tesseract-OCR" "dist\InvoiceGenerator\tesseract\" /E /I /Q
         mkdir "dist\InvoiceGenerator\output"
-
-    - name: Create launcher batch file
-      run: |
         @"
-        @echo off
-        cd /d "%~dp0"
-        set "PATH=%CD%\tesseract;%PATH%"
-        set "TESSDATA_PREFIX=%CD%\tesseract\tessdata"
-        start "" "InvoiceGenerator.exe"
-        "@ | Out-File -FilePath "dist\InvoiceGenerator\Run Invoice Generator.bat" -Encoding ascii
+        Invoice Generator
+        =================
+
+        How to use:
+        1. Double-click 'InvoiceGenerator.exe' to start the app
+        2. Click 'Browse' to select a PO screenshot (PNG or JPG)
+        3. Click 'Generate Invoice' to create the PDF
+        4. The invoice will be saved in the 'output' folder
+
+        Note: Generated invoices are saved in the 'output' folder
+        next to this application.
+        "@ | Out-File -FilePath "dist\InvoiceGenerator\README.txt" -Encoding utf8
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
