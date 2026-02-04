@@ -183,14 +183,22 @@ def extract_po_data(image_path: str) -> dict:
         # Skip any leading row numbers and special chars (e.g., "a * )" or "2 * ")
         # Look for lines with item codes - description can start with letter or number (J.B. or 3.8.)
         # Handle OCR reading A as "a", "4", "5" and 0 as "O", "o"
-        item_match = re.search(r'(?:^[\d\s*a|)\[\]]+\s*)?([Aa45]\s?[0OoQiIL\d]{4,5})\s+([A-Za-z0-9][^\n]{3,35}?)(?=\s+\d{1,3}[\s.,]+\d{1,3})', line, re.IGNORECASE)
+        item_match = re.search(r'(?:^[\d\s*a|>\')(\[\]]+\s*)?([Aa45]\s?[0OoQiIL\d]{4,5})\s+([A-Za-z0-9][^\n]{3,35}?)(?=\s+\d{1,3}[\s.,]+\d{1,3})', line, re.IGNORECASE)
         if item_match:
             # Get all AUD amounts on this line
             amounts = re.findall(r'AUD\s*([\d.,]+)', line, re.IGNORECASE)
             # More flexible qty pattern - handle OCR spacing variations
+            # Pattern 1: qty qty AUD (direct)
             qty_match = re.search(r'(\d{1,3})[\s.,]+(\d{1,3})\s+AUD', line)
+            # Pattern 2: qty qty No ... AUD (with "No" and other text in between)
             if not qty_match:
-                qty_match = re.search(r'(\d{1,3})\s+(\d{1,3})[,.]?\s+AUD', line)
+                qty_match = re.search(r'(\d{1,3})\s+(\d{1,3})\s+No\s+.*?AUD', line, re.IGNORECASE)
+            # Pattern 3: qty qty followed by anything then AUD
+            if not qty_match:
+                qty_match = re.search(r'(\d{1,3})\s+(\d{1,3})[^A]*AUD', line)
+            # Pattern 4: just two consecutive numbers before any AUD on the line
+            if not qty_match and amounts:
+                qty_match = re.search(r'(\d{1,3})\s+(\d{1,3})(?:\s|$|[^\d])', line)
             if amounts and qty_match:
                 item_no = item_match.group(1).replace(' ', '')
                 desc = item_match.group(2).strip()
