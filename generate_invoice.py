@@ -25,14 +25,15 @@ def extract_po_data(image_path: str) -> dict:
     img = Image.open(image_path)
 
     # Try multiple PSM modes and combine results
+    text_psm3 = pytesseract.image_to_string(img, config='--psm 3')
     text_psm4 = pytesseract.image_to_string(img, config='--psm 4')
     text_psm6 = pytesseract.image_to_string(img, config='--psm 6')
 
-    # Combine both for better coverage
-    text = text_psm4 + "\n" + text_psm6
+    # Combine all for better coverage
+    text = text_psm3 + "\n" + text_psm4 + "\n" + text_psm6
 
-    print("=== OCR Text (PSM 4) ===")
-    print(text_psm4[:1000])
+    print("=== OCR Text (PSM 3) ===")
+    print(text_psm3[:1500])
     print("================\n")
 
     # Extract PO number - try from main text first
@@ -43,15 +44,38 @@ def extract_po_data(image_path: str) -> dict:
         po_match = re.search(r'\|\|?\s*(\d{3,5})\s*[-\|]', text)
 
     # If not found, try OCR on cropped header area (top-right)
+    header_text = ""
     if not po_match:
         width, height = img.size
-        header_crop = img.crop((width//2, 0, width, height//4))
+        header_crop = img.crop((width//2, 0, width, height//3))
         header_text = pytesseract.image_to_string(header_crop, config='--psm 6')
+        print(f"=== Header OCR ===\n{header_text[:500]}\n================")
         po_match = re.search(r'Primary\s*[|\[\]()/\s]*(\d{3,5})', header_text)
         if not po_match:
-            po_match = re.search(r'(\d{4})\s*[-\)\|]', header_text)
+            po_match = re.search(r'(\d{3,4})\s*[-\)\|]', header_text)
+        if not po_match:
+            # Try finding standalone 3-digit number near "No." or "Primary"
+            po_match = re.search(r'(?:No|Primary)[^\d]*(\d{3,4})', header_text, re.IGNORECASE)
+        if not po_match:
+            # Last resort - any 3-digit number
+            po_match = re.search(r'\b(\d{3})\b', header_text)
+        if not po_match:
+            # Handle OCR error: "a08" should be "803", "8o3" etc
+            ocr_po = re.search(r'[|\[]?([a8]\d{2}|[\d][oO][\d])\b', header_text)
+            if ocr_po:
+                po_str = ocr_po.group(1)
+                # Fix common OCR errors
+                po_str = po_str.replace('a', '8').replace('A', '8').replace('o', '0').replace('O', '0')
+                po_number = po_str
 
-    po_number = po_match.group(1) if po_match else ""
+    if po_match:
+        po_number = po_match.group(1)
+    elif 'po_number' not in dir() or not po_number:
+        po_number = ""
+
+    # Also try to get dates from header area
+    if header_text:
+        text = text + "\n" + header_text
 
     # Extract vendor name
     vendor_match = re.search(r'Name\s+([A-Za-z]+\s+[A-Za-z]+)', text)
@@ -110,22 +134,62 @@ def extract_po_data(image_path: str) -> dict:
 
     # Try multiple patterns to capture line items
     patterns = [
-        # Pattern 1: "A00001 J.B. Officeprint 1420 15 15 AUD 500.000"
+        # Pattern 1: Handle OCR errors - A0000i, AQ0004, 5 00004, etc
+        r'([A45]\s?[0Oo0QiI\d]{4,5})\s+(.{5,40}?)\s+(\d{1,3})\s+\d{1,3}[,.]?\s+(?:AUD|USD)\s*([\d.,]+)',
+        # Pattern 2: "A00001 J.B. Officeprint 1420 15 15 AUD 500.000"
         r'([A4]\d{5})\s+(.{5,40}?)\s+(\d{1,3})\s+\d{1,3}\s+(?:AUD|USD)\s*([\d.,]+)',
-        # Pattern 2: with item description containing numbers
-        r'([A4]\d{5})\s+([A-Za-z][\w\s.,]+?)\s+(\d{1,3})\s+\d{1,3}\s+(?:AUD|USD)\s*([\d.,]+)',
-        # Pattern 3: with "No" in between
+        # Pattern 3: with item description containing numbers
+        r'([A45]\s?[0OoQiI\d]{4,5})\s+([A-Za-z][\w\s.,]+?)\s+(\d{1,3})\s+\d{1,3}[,.]?\s+(?:AUD|USD)\s*([\d.,]+)',
+        # Pattern 4: with "No" in between
         r'([A4]\d{5})\s+(.{5,40}?)\s+(\d+)\s+\d+\s+No\s+\d+[\s|]*(?:AUD|USD)?\s*([\d.,]+)',
-        # Pattern 4: simpler - item code, any description, quantity, price
-        r'([A4]\d{5})\s+([A-Za-z].{5,35}?)\s+(\d{1,3})\s+.*?(?:AUD|USD)\s*([\d.,]+)',
-        # Pattern 5: fallback - item, desc, price at end
+        # Pattern 5: simpler - item code, any description, quantity, price
+        r'([A45]\s?[0OoQiI\d]{4,5})\s+([A-Za-z].{5,35}?)\s+(\d{1,3})\s+.*?(?:AUD|USD)\s*([\d.,]+)',
+        # Pattern 6: fallback - item, desc, price at end
         r'([A4]\d{5})\s+([A-Za-z][^0-9]{5,30}?)\s+.*?([\d]{2,3})[.,]00',
     ]
 
-    for pattern in patterns:
-        item_patterns = re.findall(pattern, text, re.IGNORECASE)
-        if item_patterns:
-            break
+    # First try line-by-line extraction for better accuracy
+    item_patterns = []
+    lines = text.split('\n')
+    for line in lines:
+        # Look for lines with item codes - description can start with letter or number (J.B. or 3.8.)
+        item_match = re.search(r'([A45]\s?[0OoQiI\d]{4,5})\s+([A-Za-z0-9][^\n]{3,35}?)(?=\s+\d{1,3}\s+\d{1,3})', line, re.IGNORECASE)
+        if item_match:
+            # Get all AUD amounts on this line
+            amounts = re.findall(r'AUD\s*([\d.,]+)', line, re.IGNORECASE)
+            qty_match = re.search(r'(\d{1,3})\s+(\d{1,3})[,.]?\s+AUD', line)
+            if amounts and qty_match:
+                item_no = item_match.group(1).replace(' ', '')
+                desc = item_match.group(2).strip()
+                # Use the larger of the two quantity values (Qty and Open Qty columns)
+                qty = max(int(qty_match.group(1)), int(qty_match.group(2)))
+
+                # Smart price selection: compare first amount with total/qty
+                first_price = float(amounts[0].replace(',', '').replace('.', '', amounts[0].count('.') - 1) if amounts[0].count('.') > 1 else amounts[0].replace(',', ''))
+                if len(amounts) >= 2:
+                    # Get the last amount (total)
+                    total_str = amounts[-1].replace(',', '')
+                    try:
+                        total = float(total_str)
+                        expected_unit = total / qty if qty > 0 else total
+                        # If first price is close to expected, use it; otherwise use second amount
+                        if abs(first_price - expected_unit) < expected_unit * 0.5:
+                            price_str = amounts[0]
+                        else:
+                            price_str = amounts[1]
+                    except:
+                        price_str = amounts[0]
+                else:
+                    price_str = amounts[0]
+
+                item_patterns.append((item_no, desc, str(qty), price_str))
+
+    # Fallback to regex patterns if line-by-line didn't find anything
+    if not item_patterns:
+        for pattern in patterns:
+            item_patterns = re.findall(pattern, text, re.IGNORECASE)
+            if item_patterns:
+                break
 
     if item_patterns:
         for match in item_patterns:
@@ -135,9 +199,18 @@ def extract_po_data(image_path: str) -> dict:
                 item_no, desc, price = match[0], match[1], match[2]
                 qty = "1"
 
-            # Fix OCR error: 4 at start should be A
-            if item_no.startswith('4'):
+            # Fix OCR errors in item code
+            item_no = item_no.replace(' ', '')  # Remove spaces
+            if item_no.startswith('4') or item_no.startswith('5'):
                 item_no = 'A' + item_no[1:]
+            # Replace common OCR errors: Q->0, O->0, i->1, I->1
+            item_no = item_no.upper()
+            item_no = item_no.replace('Q', '0').replace('O', '0').replace('I', '1')
+            if not item_no.startswith('A'):
+                item_no = 'A' + item_no[1:] if len(item_no) > 1 else 'A00001'
+            # Ensure 6 chars (A + 5 digits)
+            if len(item_no) < 6:
+                item_no = 'A' + item_no[1:].zfill(5)
 
             qty = int(qty) if qty.isdigit() else 1
 
@@ -188,14 +261,17 @@ def extract_po_data(image_path: str) -> dict:
             # Detect tax code
             tax_code = "NY" if 'NY' in text else "P1"
 
-            line_items.append({
-                "item_no": item_no,
-                "description": desc,
-                "quantity": qty,
-                "unit_price": {"amount": price_val, "currency": currency},
-                "tax_code": tax_code,
-                "line_total": {"amount": qty * price_val, "currency": currency}
-            })
+            # Avoid duplicates - check if item_no already exists
+            existing_items = [i["item_no"] for i in line_items]
+            if item_no not in existing_items:
+                line_items.append({
+                    "item_no": item_no,
+                    "description": desc,
+                    "quantity": qty,
+                    "unit_price": {"amount": price_val, "currency": currency},
+                    "tax_code": tax_code,
+                    "line_total": {"amount": qty * price_val, "currency": currency}
+                })
 
     # If no items found, create from totals
     if not line_items:
